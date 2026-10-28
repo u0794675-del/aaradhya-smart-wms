@@ -1,0 +1,20 @@
+{
+  "name": "aaradhya-smart-wms",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "bootstrap": "npm --workspace backend run bootstrap",
+    "dev:backend": "npm --workspace backend run dev",
+    "dev:frontend": "npm --workspace frontend run dev",
+    "build": "npm --workspace frontend run build && npm --workspace backend run build",
+    "start": "npm --workspace backend run start",
+    "test": "npm --workspace backend run test",
+    "test:postgres": "npm --workspace backend run test:postgres",
+    "typecheck": "npm --workspace backend run typecheck && npm --workspace frontend run typecheck"
+  }
+}

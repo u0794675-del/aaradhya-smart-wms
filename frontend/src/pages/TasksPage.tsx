@@ -1,0 +1,529 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { api, formatDateTime, formatNumber, queryString, titleCase } from '../api';
+import { useAuth } from '../auth';
+import { useApi, useAction } from '../hooks';
+import { useToast } from '../toast';
+import {
+  Card,
+  DataTable,
+  Dialog,
+  ErrorNote,
+  Field,
+  Icon,
+  MetaList,
+  PageHeader,
+  Spinner,
+  Stat,
+  StatusPill,
+  type Column,
+} from '../ui';
+import { ReasonDialog } from '../components/forms';
+import { entityLabel, entityLink } from '../links';
+
+interface TaskRow {
+  id: string;
+  task_no: string;
+  task_type: string;
+  priority: string;
+  status: string;
+  assigned_to: string | null;
+  warehouse_id: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  description: string | null;
+  due_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  blocked_reason: string | null;
+  created_by: string;
+  created_at: string;
+  assignee_name: string | null;
+  creator_name: string | null;
+  is_overdue: number;
+}
+
+interface TaskList {
+  rows: TaskRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+const TASK_TYPES = ['PUTAWAY', 'PICKING', 'QC', 'PACKING', 'RETURN_INSPECTION', 'CYCLE_COUNT', 'TRANSFER', 'MAINTENANCE'];
+const OPEN_STATUSES = ['OPEN', 'ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'BLOCKED', 'ON_HOLD'];
+const STATUSES = [...OPEN_STATUSES, 'COMPLETED', 'CANCELLED'];
+
+export function TasksPage() {
+  const { can } = useAuth();
+  const toast = useToast();
+  const [params, setParams] = useSearchParams();
+  const [status, setStatus] = useState(params.get('status') ?? '');
+  const [taskType, setTaskType] = useState('');
+  const [priority, setPriority] = useState('');
+  const [overdue, setOverdue] = useState(params.get('overdue') === '1');
+  const [version, setVersion] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
+  const selectedId = params.get('task');
+
+  const list = useApi<TaskList>(
+    `/tasks${queryString({
+      status: status || undefined,
+      taskType: taskType || undefined,
+      priority: priority || undefined,
+      overdue: overdue || undefined,
+      limit: 200,
+    })}`,
+    version,
+  );
+  const rows = list.data?.rows ?? [];
+
+  const openTask = (id: string) => {
+    const next = new URLSearchParams(params);
+    next.set('task', id);
+    setParams(next, { replace: true });
+  };
+  const closeTask = () => {
+    const next = new URLSearchParams(params);
+    next.delete('task');
+    setParams(next, { replace: true });
+  };
+
+  const totals = useMemo(
+    () =>
+      rows.reduce(
+        (acc, row) => ({
+          open: acc.open + (OPEN_STATUSES.includes(row.status) ? 1 : 0),
+          overdue: acc.overdue + (Number(row.is_overdue) ? 1 : 0),
+          blocked: acc.blocked + (row.status === 'BLOCKED' ? 1 : 0),
+          done: acc.done + (row.status === 'COMPLETED' ? 1 : 0),
+        }),
+        { open: 0, overdue: 0, blocked: 0, done: 0 },
+      ),
+    [rows],
+  );
+
+  const columns: Array<Column<TaskRow>> = [
+    {
+      key: 'task_no',
+      header: 'Task',
+      render: (row) => (
+        <div className="cell-title">
+          <strong>{row.task_no}</strong>
+          <span className="muted tiny">{titleCase(row.task_type)}</span>
+        </div>
+      ),
+    },
+    { key: 'status', header: 'Status', render: (row) => <StatusPill value={row.status} /> },
+    { key: 'priority', header: 'Priority', render: (row) => <StatusPill value={row.priority} dot={false} /> },
+    {
+      key: 'entity',
+      header: 'Linked record',
+      render: (row) => {
+        const link = entityLink(row.entity_type, row.entity_id);
+        const text = row.entity_type ? entityLabel(row.entity_type) : '—';
+        return link ? (
+          <Link className="inline-link" to={link} onClick={(event) => event.stopPropagation()}>
+            {text}
+          </Link>
+        ) : (
+          <span className="muted">{text}</span>
+        );
+      },
+    },
+    {
+      key: 'assignee_name',
+      header: 'Assignee',
+      render: (row) => row.assignee_name ?? <span className="muted">Unassigned</span>,
+    },
+    {
+      key: 'due_at',
+      header: 'Due',
+      render: (row) => (
+        <div>
+          <span className={Number(row.is_overdue) ? 'text-danger strong' : ''}>{formatDateTime(row.due_at)}</span>
+          {Number(row.is_overdue) ? <span className="muted tiny">overdue</span> : null}
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      render: (row) => (
+        <button type="button" className="btn btn-subtle btn-xs" onClick={() => openTask(row.id)}>
+          Open
+        </button>
+      ),
+    },
+  ];
+
+  return (
+    <div className="page">
+      <PageHeader
+        eyebrow="Workforce"
+        title="Tasks"
+        subtitle="Operational work generated by receiving, picking, packing, counts and maintenance — with assignment, blocking and completion history."
+        actions={
+          can('task.manage') ? (
+            <button type="button" className="btn btn-primary" onClick={() => setCreateOpen(true)}>
+              <Icon name="plus" size={16} /> New task
+            </button>
+          ) : null
+        }
+      />
+
+      <div className="stat-grid four">
+        <Stat label="Tasks in view" value={formatNumber(rows.length)} icon="tasks" />
+        <Stat label="Open" value={formatNumber(totals.open)} icon="clock" tone="warning" />
+        <Stat label="Overdue" value={formatNumber(totals.overdue)} icon="alert" tone={totals.overdue ? 'danger' : 'success'} />
+        <Stat label="Blocked" value={formatNumber(totals.blocked)} icon="lock" tone={totals.blocked ? 'danger' : 'neutral'} />
+      </div>
+
+      <Card
+        title="Task queue"
+        subtitle={
+          list.data
+            ? `${formatNumber(list.data.total)} tasks${list.data.total > rows.length ? ` · showing ${rows.length}` : ''}`
+            : 'Loading task queue'
+        }
+        actions={
+          <div className="toolbar wrap">
+            <select className="input compact-input" value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="">All statuses</option>
+              {STATUSES.map((value) => (
+                <option key={value} value={value}>
+                  {titleCase(value)}
+                </option>
+              ))}
+            </select>
+            <select className="input compact-input" value={taskType} onChange={(event) => setTaskType(event.target.value)}>
+              <option value="">All types</option>
+              {TASK_TYPES.map((value) => (
+                <option key={value} value={value}>
+                  {titleCase(value)}
+                </option>
+              ))}
+            </select>
+            <select className="input compact-input" value={priority} onChange={(event) => setPriority(event.target.value)}>
+              <option value="">All priorities</option>
+              {['LOW', 'NORMAL', 'HIGH', 'URGENT'].map((value) => (
+                <option key={value} value={value}>
+                  {titleCase(value)}
+                </option>
+              ))}
+            </select>
+            <label className="check">
+              <input type="checkbox" checked={overdue} onChange={(event) => setOverdue(event.target.checked)} />
+              Overdue only
+            </label>
+            <button type="button" className="btn btn-subtle btn-sm" onClick={() => list.reload()}>
+              <Icon name="refresh" size={14} /> Refresh
+            </button>
+          </div>
+        }
+        flush
+      >
+        <ErrorNote error={list.error} />
+        <DataTable
+          columns={columns}
+          rows={rows}
+          loading={list.loading && !list.data}
+          rowKey={(row) => row.id}
+          onRowClick={(row) => openTask(row.id)}
+          emptyTitle={overdue ? 'No overdue tasks' : 'No tasks match this filter'}
+          emptyMessage={overdue ? 'Every open task is within its due window.' : 'Tasks appear here when workflows create them or when you add one.'}
+        />
+      </Card>
+
+      {selectedId ? (
+        <TaskDetailDialog
+          id={selectedId}
+          onClose={closeTask}
+          onChanged={() => {
+            setVersion((value) => value + 1);
+            toast.notify('Task updated.', 'success');
+          }}
+        />
+      ) : null}
+
+      <CreateTaskDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(id, taskNo) => {
+          setCreateOpen(false);
+          setVersion((value) => value + 1);
+          toast.notify(`Task ${taskNo} created.`, 'success');
+          openTask(id);
+        }}
+      />
+    </div>
+  );
+}
+
+function CreateTaskDialog({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (id: string, taskNo: string) => void;
+}) {
+  const { can } = useAuth();
+  const [taskType, setTaskType] = useState('PUTAWAY');
+  const [priority, setPriority] = useState('NORMAL');
+  const [description, setDescription] = useState('');
+  const [dueInHours, setDueInHours] = useState('8');
+  const [assignToMe, setAssignToMe] = useState(false);
+  const action = useAction();
+
+  useEffect(() => {
+    if (open) {
+      setTaskType('PUTAWAY');
+      setPriority('NORMAL');
+      setDescription('');
+      setDueInHours('8');
+      setAssignToMe(false);
+      action.setError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const submit = async () => {
+    const result = await action.run(() =>
+      api.post<{ id: string; taskNo: string }>('/tasks', {
+        taskType,
+        priority,
+        description: description.trim() || null,
+        dueInHours: Number(dueInHours) || 8,
+        assignedTo: null,
+      }),
+    );
+    if (result && assignToMe) {
+      try {
+        await api.post(`/tasks/${result.id}/claim`);
+      } catch {
+        // The task still exists; claim can be retried from the detail view.
+      }
+    }
+    if (result) onCreated(result.id, result.taskNo);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      title="Create task"
+      subtitle="Use tasks for floor work that is not already generated by an operational workflow."
+      onClose={onClose}
+      wide
+      footer={
+        <div className="form-actions">
+          <button type="button" className="btn btn-subtle" onClick={onClose} disabled={action.running}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={action.running}>
+            {action.running ? 'Creating…' : 'Create task'}
+          </button>
+        </div>
+      }
+    >
+      <div className="stack">
+        <ErrorNote error={action.error} />
+        <div className="form-grid two">
+          <Field label="Task type" required>
+            <select className="input" value={taskType} onChange={(event) => setTaskType(event.target.value)}>
+              {TASK_TYPES.map((value) => (
+                <option key={value} value={value}>
+                  {titleCase(value)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Priority" required>
+            <select className="input" value={priority} onChange={(event) => setPriority(event.target.value)}>
+              {['LOW', 'NORMAL', 'HIGH', 'URGENT'].map((value) => (
+                <option key={value} value={value}>
+                  {titleCase(value)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Due in hours" required>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={720}
+              step={1}
+              value={dueInHours}
+              onChange={(event) => setDueInHours(event.target.value)}
+            />
+          </Field>
+          <Field label="Assign to me">
+            <label className="check">
+              <input type="checkbox" checked={assignToMe} onChange={(event) => setAssignToMe(event.target.checked)} />
+              Claim this task after creating it
+            </label>
+          </Field>
+          <Field label="Description" className="span-2">
+            <textarea
+              className="input textarea"
+              rows={3}
+              value={description}
+              maxLength={1000}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="What needs to be done?"
+            />
+          </Field>
+        </div>
+        {!can('task.assign') ? (
+          <p className="muted small">Your role can create and claim tasks but cannot assign them to other employees.</p>
+        ) : (
+          <p className="muted small">
+            Assignment to other employees is not exposed in this build because the worker directory endpoint is restricted to
+            administrators. Tasks can be claimed by the assignee.
+          </p>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+function TaskDetailDialog({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
+  const { user, can } = useAuth();
+  const toast = useToast();
+  const [version, setVersion] = useState(0);
+  const detail = useApi<TaskRow>(`/tasks/${id}`, version);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const action = useAction();
+  const data = detail.data;
+  const closed = Boolean(data && ['COMPLETED', 'CANCELLED'].includes(data.status));
+  const assignedToOther = Boolean(data && data.assigned_to && user && data.assigned_to !== user.id);
+  const mine = Boolean(data && data.assigned_to && user && data.assigned_to === user.id);
+  const link = data ? entityLink(data.entity_type, data.entity_id) : null;
+
+  const refresh = () => {
+    setVersion((value) => value + 1);
+    onChanged();
+  };
+
+  const transition = async (path: string, body: unknown, message: string) => {
+    const result = await action.run(() => api.post(path, body));
+    if (result !== undefined) {
+      toast.notify(message, 'success');
+      refresh();
+    }
+  };
+
+  return (
+    <Dialog
+      open
+      title={data ? `Task ${data.task_no}` : 'Task'}
+      subtitle={data ? `${titleCase(data.task_type)} · ${titleCase(data.status)}` : 'Loading task'}
+      onClose={onClose}
+      wide
+      footer={
+        <div className="form-actions spread">
+          <div className="inline-actions">
+            {data && !closed && (!assignedToOther || can('task.assign')) && (!data.assigned_to || mine) ? (
+              <button
+                type="button"
+                className="btn btn-subtle"
+                disabled={action.running}
+                onClick={() => void transition(`/tasks/${data.id}/claim`, {}, 'Task claimed.')}
+              >
+                Claim
+              </button>
+            ) : null}
+            {data && ['ASSIGNED', 'ACCEPTED', 'ON_HOLD'].includes(data.status) && (!assignedToOther || can('task.assign')) ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={action.running}
+                onClick={() => void transition(`/tasks/${data.id}/start`, {}, 'Task started.')}
+              >
+                Start
+              </button>
+            ) : null}
+            {data && !closed ? (
+              <button type="button" className="btn btn-subtle" onClick={() => setBlockOpen(true)}>
+                Block
+              </button>
+            ) : null}
+            {data && !closed ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={action.running}
+                onClick={() => void transition(`/tasks/${data.id}/complete`, {}, 'Task completed.')}
+              >
+                Complete
+              </button>
+            ) : null}
+            {data && can('task.assign') && !closed && !mine ? (
+              <button
+                type="button"
+                className="btn btn-subtle"
+                disabled={action.running || !user}
+                onClick={() => transition(`/tasks/${data.id}/assign`, { assignedTo: user?.id ?? null }, 'Task assigned to you.')}
+              >
+                Assign to me
+              </button>
+            ) : null}
+          </div>
+          <button type="button" className="btn btn-subtle" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      }
+    >
+      {detail.loading && !data ? <Spinner label="Loading task…" /> : null}
+      <ErrorNote error={detail.error ?? action.error} />
+      {data ? (
+        <div className="stack">
+          <div className="stat-grid four">
+            <Stat label="Status" value={<StatusPill value={data.status} />} icon="tasks" />
+            <Stat label="Priority" value={titleCase(data.priority)} icon="alert" tone={data.priority === 'URGENT' ? 'danger' : data.priority === 'HIGH' ? 'warning' : 'neutral'} />
+            <Stat label="Due" value={formatDateTime(data.due_at)} icon="clock" tone={Number(data.is_overdue) ? 'danger' : 'neutral'} />
+            <Stat label="Assignee" value={data.assignee_name ?? 'Unassigned'} icon="user" />
+          </div>
+
+          <div className="detail-grid">
+            <MetaList
+              items={[
+                { label: 'Task no', value: <strong>{data.task_no}</strong> },
+                { label: 'Type', value: titleCase(data.task_type) },
+                { label: 'Linked record', value: link ? <Link className="inline-link" to={link}>{entityLabel(data.entity_type)}</Link> : '—' },
+                { label: 'Created by', value: data.creator_name ?? '—' },
+                { label: 'Created', value: formatDateTime(data.created_at) },
+                { label: 'Started', value: data.started_at ? formatDateTime(data.started_at) : '—' },
+                { label: 'Completed', value: data.completed_at ? formatDateTime(data.completed_at) : '—' },
+                { label: 'Blocked reason', value: data.blocked_reason ?? '—' },
+              ]}
+            />
+            <div className="detail-actions">
+              {data.description ? <div className="callout"><strong>Instructions</strong><p>{data.description}</p></div> : null}
+              {Number(data.is_overdue) ? <p className="text-danger small">This task is past its due time.</p> : null}
+              <p className="muted tiny">Every status change is written to the immutable audit trail with your user and timestamp.</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <ReasonDialog
+        open={blockOpen}
+        title={data ? `Block ${data.task_no}` : 'Block task'}
+        label="Block reason"
+        confirmLabel="Block task"
+        danger
+        onClose={() => setBlockOpen(false)}
+        onConfirm={async (reason) => {
+          if (!data) return;
+          await api.post(`/tasks/${data.id}/block`, { reason });
+          toast.notify('Task blocked and reason recorded.', 'warning');
+          refresh();
+        }}
+      />
+    </Dialog>
+  );
+}
