@@ -1531,6 +1531,9 @@ select.input { cursor: pointer; }
 .scanner-live-badge .pill-dot { background: #4be0b0; box-shadow: 0 0 8px #4be0b0; }
 .scanner-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .scanner-controls .muted { flex: 1; min-width: 180px; }
+.scanner-photo { position: relative; overflow: hidden; cursor: pointer; }
+.scanner-photo input[type='file'] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.scanner-photo.is-disabled { opacity: 0.55; pointer-events: none; }
 
 /* ------------------------------------------------------------------ */
 /* Search                                                              */
