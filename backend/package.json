@@ -15,6 +15,7 @@
     "import:stock-list": "tsx scripts/import-stock-list.ts",
     "purge:demo": "tsx scripts/purge-demo-data.ts",
     "cleanup:b2c": "tsx scripts/remove-b2c.ts",
+    "labels:pdf": "tsx scripts/print-labels.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
