@@ -39,6 +39,7 @@ export interface BuildServerOptions {
   logger?: boolean | object;
   serveFrontend?: boolean;
   emailSender?: EmailSender;
+  https?: { key: Buffer; cert: Buffer };
 }
 
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
@@ -47,6 +48,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     logger: options.logger ?? { level: process.env.LOG_LEVEL ?? 'info' },
     bodyLimit: 12 * 1024 * 1024,
     trustProxy: false,
+    ...(options.https ? { https: options.https } : {}),
   });
 
   app.decorateRequest('authUser', null);

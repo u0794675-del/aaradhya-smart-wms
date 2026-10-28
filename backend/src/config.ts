@@ -4,6 +4,9 @@ import process from 'node:process';
 export const config = {
   host: process.env.HOST ?? '127.0.0.1',
   port: Number(process.env.PORT ?? 4173),
+  httpsPort: Number(process.env.HTTPS_PORT ?? 8443),
+  httpsKeyPath: process.env.HTTPS_KEY ?? path.resolve(process.cwd(), 'certs', 'lan-key.pem'),
+  httpsCertPath: process.env.HTTPS_CERT ?? path.resolve(process.cwd(), 'certs', 'lan-cert.pem'),
   dbDriver: (process.env.DB_DRIVER ?? 'sqlite') as 'sqlite' | 'postgres',
   dbPath: process.env.DB_PATH ?? path.resolve(process.cwd(), 'data', 'wms.db'),
   databaseUrl: process.env.DATABASE_URL ?? '',
