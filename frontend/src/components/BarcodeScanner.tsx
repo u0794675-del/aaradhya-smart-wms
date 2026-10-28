@@ -16,10 +16,13 @@ export function BarcodeScanner({
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
+  const audioRef = useRef<AudioContext | null>(null);
+  const detectedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const doneRef = useRef(false);
   const [active, setActive] = useState(false);
   const [starting, setStarting] = useState(false);
   const [reading, setReading] = useState(false);
+  const [detected, setDetected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const liveCamera = hasLiveCamera();
 
@@ -29,13 +32,62 @@ export function BarcodeScanner({
     setActive(false);
   }, []);
 
-  useEffect(() => () => stop(), [stop]);
+  useEffect(
+    () => () => {
+      stop();
+      if (detectedTimer.current) clearTimeout(detectedTimer.current);
+      void audioRef.current?.close().catch(() => undefined);
+    },
+    [stop],
+  );
+
+  // iOS has no vibration API, so every scan also gets a short confirmation beep.
+  const unlockAudio = () => {
+    if (audioRef.current) return;
+    const Ctor =
+      window.AudioContext ??
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return;
+    try {
+      audioRef.current = new Ctor();
+    } catch {
+      audioRef.current = null;
+    }
+  };
+
+  const confirmScan = (text: string) => {
+    navigator.vibrate?.([80, 40, 80]);
+    const ctx = audioRef.current;
+    if (ctx) {
+      try {
+        if (ctx.state === 'suspended') void ctx.resume();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 1046;
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.2);
+      } catch {
+        /* audio is optional feedback */
+      }
+    }
+    setDetected(text);
+    if (detectedTimer.current) clearTimeout(detectedTimer.current);
+    detectedTimer.current = setTimeout(() => setDetected(null), 2500);
+    onDetected(text);
+  };
 
   const start = async () => {
     if (!videoRef.current) return;
     setError(null);
     setStarting(true);
     doneRef.current = false;
+    unlockAudio();
     try {
       const reader = new BrowserMultiFormatReader();
       const controls = await reader.decodeFromVideoDevice(undefined, videoRef.current, (result, _error, scanner) => {
@@ -44,7 +96,7 @@ export function BarcodeScanner({
         scanner.stop();
         controlsRef.current = null;
         setActive(false);
-        onDetected(result.getText());
+        confirmScan(result.getText());
       });
       controlsRef.current = controls;
       setActive(true);
@@ -59,10 +111,11 @@ export function BarcodeScanner({
     if (!file) return;
     setError(null);
     setReading(true);
+    unlockAudio();
     const url = URL.createObjectURL(file);
     try {
       const result = await new BrowserMultiFormatReader().decodeFromImageUrl(url);
-      onDetected(result.getText());
+      confirmScan(result.getText());
     } catch {
       setError('No barcode found in that photo. Fill the frame with the barcode, hold steady and try again.');
     } finally {
@@ -91,6 +144,11 @@ export function BarcodeScanner({
             <span className="pill-dot" /> Scanning
           </span>
         )}
+        {detected ? (
+          <span className="scanner-detected-badge" role="status">
+            <Icon name="check" size={14} /> {detected}
+          </span>
+        ) : null}
       </div>
       <div className="scanner-controls">
         {active ? (

@@ -1529,6 +1529,28 @@ select.input { cursor: pointer; }
   letter-spacing: 0.08em;
 }
 .scanner-live-badge .pill-dot { background: #4be0b0; box-shadow: 0 0 8px #4be0b0; }
+.scanner-detected-badge {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 24px);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #34c08b;
+  color: #04231a;
+  font-size: 12.5px;
+  font-weight: 700;
+  box-shadow: 0 10px 30px -12px rgba(4, 35, 26, 0.8);
+  animation: scanner-flash 0.35s ease-out;
+}
+@keyframes scanner-flash {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
 .scanner-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .scanner-controls .muted { flex: 1; min-width: 180px; }
 .scanner-photo { position: relative; overflow: hidden; cursor: pointer; }
