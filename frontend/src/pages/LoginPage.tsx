@@ -72,7 +72,7 @@ export function LoginPage() {
               : 'Use the credentials issued by your system administrator.'}
           </p>
 
-          {error ? <ErrorNote error={error} /> : null}
+          {error ? <ErrorNote error={error.message} /> : null}
 
           <form
             className="login-form"
